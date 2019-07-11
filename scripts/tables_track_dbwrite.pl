@@ -188,12 +188,13 @@ sub process_data
                         'value' => $kvo->{'value'},
                         'block_timestamp' => $block_time,
                         'block_num' => $block_num,
+                        'block_num_x' => $block_num * 10 + ($data->{'added'} eq 'true' ? 1:0),
                     });
                 $cb->insert($doc);
                 if( not $doc->is_ok)
                 {
                     die("Could not store document: " . $doc->errstr);
-                }
+                }                
             }
             else
             {
@@ -250,10 +251,11 @@ sub process_data
             ## process updates
             my $rv = $cb->query_iterator
                 ('SELECT META().id,* FROM ' . $bucket . ' WHERE type=\'table_upd\' ' .
-                 'AND network=\'' . $network . '\' AND TONUM(block_num)<=' . $last_irreversible);
+                 'AND network=\'' . $network . '\' AND TONUM(block_num)<=' . $last_irreversible .
+                 ' ORDER BY TONUM(block_num_x)');
 
             while((my $row = $rv->next))
-            {
+            {                
                 my $obj = $row->{$bucket};
                 my $tbl_id = join(':', 'table_row', $obj->{'rowid'});
                 
@@ -261,6 +263,7 @@ sub process_data
                 {
                     delete $obj->{'added'};
                     delete $obj->{'rowid'};
+                    delete $obj->{'block_num_x'};
                     $obj->{'type'} = 'table_row';
                                         
                     my $doc = Couchbase::Document->new($tbl_id, $obj);

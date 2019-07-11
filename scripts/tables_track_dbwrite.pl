@@ -47,7 +47,7 @@ if( not $ok or scalar(@ARGV) > 0 or not $network )
 my $cb = Couchbase::Bucket->new('couchbase://' . $dbhost . '/' . $bucket,
                                 {'username' => 'Administrator', 'password' => 'password'});
 
-my $json = JSON->new;
+my $json = JSON->new->canonical;
 
 my $confirmed_block = 0;
 my $unconfirmed_block = 0;
@@ -56,7 +56,7 @@ my $irreversible = 0;
 my %contracts_include;
 my %contracts_skip;
 my $last_skip_flush = 0;
-my $flush_skip_every = 60; # every 30 seconds
+my $flush_skip_every = 7200;
 
 
 {
@@ -114,6 +114,9 @@ sub process_data
         my $block_num = $data->{'block_num'};
         print STDERR "fork at $block_num\n";
 
+        $cb->query_slurp('DELETE FROM ' . $bucket . ' WHERE type=\'table_upd\' ' .
+                         'AND network=\'' . $network . '\' AND TONUM(block_num)>=' . $block_num);
+            
         $confirmed_block = $block_num;
         $unconfirmed_block = $block_num;
         return $block_num;
@@ -142,7 +145,7 @@ sub process_data
                         'block_timestamp' => $block_time,
                         'block_num' => $block_num,
                     });
-                $cb->insert($doc);
+                $cb->upsert($doc);
                 if (!$doc->is_ok)
                 {
                     die("Could not store document: " . $doc->errstr);
@@ -167,14 +170,8 @@ sub process_data
 
             if( $ofinterest )
             {
-                my $rowid_str = join(':', $network, $contract, $table, $kvo->{'scope'}, '');
-                foreach my $key (sort keys %{$kvo->{'value'}})
-                {
-                    # null character is never seen in values, so it's safe to use as separator
-                    $rowid_str .= $key . '=' . $kvo->{'value'}{$key} . "\0"; 
-                }
-                
-                my $rowid = sha256_hex($rowid_str);
+                my $rowid = sha256_hex(
+                    join(':', $network, $contract, $table, $kvo->{'scope'}, $kvo->{'primary_key'}));
                 
                 my $id = join(':', 'table_upd', $block_num, $rowid, $data->{'added'});
                 my $doc = Couchbase::Document->new(

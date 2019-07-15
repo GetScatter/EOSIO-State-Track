@@ -16,7 +16,7 @@ $Protocol::WebSocket::Frame::MAX_FRAGMENTS_AMOUNT = 102400;
 $| = 1;
 
 my $port = 8100;
-my $ack_every = 120;
+my $ack_every = 12;
 
 my $network;
 my $dbhost = '10.0.3.41';
@@ -53,8 +53,12 @@ my $confirmed_block = 0;
 my $unconfirmed_block = 0;
 my $irreversible = 0;
 
-my %contracts_include;
-my %contracts_skip;
+my %contracts_store_deltas;
+my %contracts_store_traces;
+
+my %contracts_deltas_skip;
+my %acc_traces_skip;
+
 my $last_skip_flush = 0;
 my $flush_skip_every = 7200;
 
@@ -117,6 +121,9 @@ sub process_data
         $cb->query_slurp('DELETE FROM ' . $bucket . ' WHERE type=\'table_upd\' ' .
                          'AND network=\'' . $network . '\' AND TONUM(block_num)>=' . $block_num);
             
+        $cb->query_slurp('DELETE FROM ' . $bucket . ' WHERE type=\'transaction_upd\' ' .
+                         'AND network=\'' . $network . '\' AND TONUM(block_num)>=' . $block_num);
+
         $confirmed_block = $block_num;
         $unconfirmed_block = $block_num;
         return $block_num;
@@ -133,13 +140,13 @@ sub process_data
             
             if( $table eq 'tokenconfigs' and defined($kvo->{'value'}{'standard'}) )
             {
-                %contracts_skip = ();
                 my $type = 'token:' . $kvo->{'value'}{'standard'};
-                $contracts_include{$contract} = $type;
-
+                $contracts_store_deltas{$contract} = $type;
+                
                 my $doc = Couchbase::Document->new(
-                    'contract:' . $contract, {
+                    'contract:' . $network . ':' . $contract, {
                         'type' => 'contract',
+                        'network' => $network,
                         'account_name' => $contract,
                         'contract_type' => $type,
                         'block_timestamp' => $block_time,
@@ -150,22 +157,17 @@ sub process_data
                 {
                     die("Could not store document: " . $doc->errstr);
                 }
+                print STDERR '.';
             }
 
             my $ofinterest;
-            if( defined($contracts_include{$contract}) )
+            if( defined($contracts_store_deltas{$contract}) )
             {
                 $ofinterest = 1;
             }
-            elsif( not $contracts_skip{$contract} )
+            elsif( not $contracts_deltas_skip{$contract} )
             {
-                my $doc = Couchbase::Document->new('contract:' . $contract);
-                $cb->get($doc);
-                if( $doc->is_ok() )
-                {
-                    $contracts_include{$contract} = $doc->value->{'contract_type'};
-                    $ofinterest = 1;
-                }
+                $ofinterest = lookup_contract_in_db($contract);
             }
 
             if( $ofinterest )
@@ -178,7 +180,7 @@ sub process_data
                     $id,
                     {
                         'type' => 'table_upd',
-                        'contract_type' => $contracts_include{$contract},
+                        'contract_type' => $contracts_store_deltas{$contract},
                         'rowid' => $rowid,
                         'network' => $network,
                         'code' => $contract,
@@ -195,10 +197,11 @@ sub process_data
                 {
                     die("Could not store document: " . $doc->errstr);
                 }                
+                print STDERR '.';
             }
             else
             {
-                $contracts_skip{$contract} = 1;
+                $contracts_deltas_skip{$contract} = 1;
             }
         }
     }
@@ -207,8 +210,51 @@ sub process_data
         my $trace = $data->{'trace'};
         if( $trace->{'status'} eq 'executed' )
         {
-            my $block_num = $data->{'block_num'};
-            my $block_time = $data->{'block_timestamp'};
+            my %accounts;
+            foreach my $atrace ( @{$trace->{'action_traces'}} )
+            {
+                my $act = $atrace->{'act'};                
+                $accounts{$atrace->{'receipt'}{'receiver'}} = 1;
+                $accounts{$act->{'account'}} = 1;
+            }
+
+            my %accounts_matched;
+            foreach my $acc (keys %accounts)
+            {
+                my $ofinterest;
+                if( $contracts_store_traces{$acc} )
+                {
+                    $ofinterest = 1;
+                }
+                elsif( not $acc_traces_skip{$acc} )
+                {
+                    if( lookup_contract_in_db($acc) )
+                    {
+                        $ofinterest = $contracts_store_traces{$acc};
+                    }
+                }
+                
+                if( $ofinterest )
+                {
+                    $accounts_matched{$acc} = 1;
+                }
+            }
+
+            if( scalar(keys %accounts_matched) > 0 )
+            {
+                $data->{'type'} = 'transaction_upd';
+                $data->{'network'} = $network;
+                $data->{'tx_accounts'} = [sort keys %accounts_matched];
+                
+                my $doc = Couchbase::Document->new(
+                    'tx:' . $network . ':' . $trace->{'id'}, $data);
+                $cb->insert($doc);
+                if (!$doc->is_ok)
+                {
+                    die("Could not store document: " . $doc->errstr);
+                }
+                print STDERR '.';
+            }
         }
     }
     elsif( $msgtype == 1009 ) # CHRONICLE_MSGTYPE_RCVR_PAUSE
@@ -292,13 +338,16 @@ sub process_data
                     }
                 }
             }
-            
+
+            $cb->query_slurp('UPDATE ' . $bucket . ' SET type=\'transaction\' WHERE type=\'transaction_upd\' ' .
+                             'AND network=\'' . $network . '\' AND TONUM(block_num)<=' . $last_irreversible);
+
             $irreversible = $last_irreversible;
         }                   
 
         if( $block_num >= $last_skip_flush + $flush_skip_every )
         {
-            %contracts_skip = ();
+            %contracts_deltas_skip = ();
             $last_skip_flush = $block_num;
         }
 
@@ -313,3 +362,20 @@ sub process_data
 }
 
 
+sub  lookup_contract_in_db
+{
+    my $contract = shift;
+
+    my $doc = Couchbase::Document->new('contract:' . $network . ':' . $contract);
+    $cb->get($doc);
+    if( $doc->is_ok() )
+    {
+        $contracts_store_deltas{$contract} = $doc->value->{'contract_type'};
+        if( defined($doc->value->{'collect_traces'}) and $doc->value->{'collect_traces'} eq 'true' )
+        {
+            $contracts_store_traces{$contract} = 1;
+        }
+        return 1;
+    }
+    return 0;
+}

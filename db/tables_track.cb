@@ -20,8 +20,13 @@ q "CREATE INDEX tbl_row_03 ON eosio_tables(network,contract_type,tblname,scope) 
 
 q "CREATE INDEX tbl_row_04 ON eosio_tables(network,scope) WHERE type = 'table_row'"
 
+q "CREATE INDEX tx_01 ON eosio_tables(network, DISTINCT ARRAY acc FOR acc IN tx_accounts END, TONUM(block_num)) WHERE type = 'transaction'"
 
-cbc create contract:stanismarket -V \
-'{"type":"contract", "account_name":"stanismarket", "contract_type":"marketplace"}' \
+q "CREATE INDEX tx_upd_01 ON eosio_tables(network,TONUM(block_num)) WHERE type = 'transaction_upd'"
+
+
+
+cbc create contract:jungle:stanismarket -V \
+'{"type":"contract", "network":"jungle", "account_name":"stanismarket", "contract_type":"marketplace", "collect_traces":"true"}' \
 -M upsert -u Administrator -P password  -U couchbase://localhost/eosio_tables
 

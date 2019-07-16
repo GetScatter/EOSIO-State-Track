@@ -192,7 +192,7 @@ sub process_data
                         'tblname' => $table,
                         'added' => $data->{'added'},
                         'scope' => $kvo->{'scope'},
-                        'value' => $kvo->{'value'},
+                        'rowval' => $kvo->{'value'},
                         'block_timestamp' => $block_time,
                         'block_num' => $block_num,
                         'block_num_x' => $block_num * 10 + ($data->{'added'} eq 'true' ? 1:0),

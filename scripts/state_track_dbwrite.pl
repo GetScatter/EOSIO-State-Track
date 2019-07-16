@@ -15,39 +15,48 @@ $Protocol::WebSocket::Frame::MAX_FRAGMENTS_AMOUNT = 102400;
 
 $| = 1;
 
-my $port = 8100;
-my $ack_every = 12;
 
 my $network;
-my $dbhost = '10.0.3.41';
-my $bucket = 'eosio_tables';
+my $track_tokenconfigs = 1;
+
+my $port = 8100;
+my $ack_every = 120;
+
+my $dbhost = '127.0.0.1';
+my $bucket = 'state_track';
 my $dbuser = 'Administrator';
 my $dbpw = 'password';
 
 
 my $ok = GetOptions
-    ('network=s' => \$network,
+    (
+     'network=s' => \$network,
+     'tkcfg'     => \$track_tokenconfigs, 
      'port=i'    => \$port,
      'ack=i'     => \$ack_every,     
      'dbhost=s'  => \$dbhost,
      'bucket=s'  => \$bucket,
      'dbuser=s'  => \$dbuser,
-     'dbpw=s'    => \$dbpw);
+     'dbpw=s'    => \$dbpw,
+     );
 
 
 if( not $ok or scalar(@ARGV) > 0 or not $network )
 {
     print STDERR "Usage: $0 --network=eos [options...]\n",
-    "The utility opens a WS port for Chronicle to send data to.\n",
-    "Options:\n",
-    "  --port=N           \[$port\] TCP port to listen to websocket connection\n",
-    "  --ack=N            \[$ack_every\] Send acknowledgements every N blocks\n",
-    "  --network=NAME     name of EOS network\n",
-    "  --dbhost=HOST      \[$dbhost]\n",
-    "  --bucket=NAME      \[$bucket]\n";
+        "The utility opens a WS port for Chronicle to send data to.\n",
+        "Options:\n",
+        "  --port=N           \[$port\] TCP port to listen to websocket connection\n",
+        "  --ack=N            \[$ack_every\] Send acknowledgements every N blocks\n",
+        "  --network=NAME     name of EOS network\n",
+        "  --notkcfg          skip looking up tokenconfigs table\n",
+        "  --dbhost=HOST      \[$dbhost] Couchbase host\n",
+        "  --bucket=NAME      \[$bucket] Couchbase bucket\n",
+        "  --dbuser=USER      \[$dbuser\] Couchbase user\n",
+        "  --dbpw=PW          \[$dbpw\] Couchbase password\n";
     exit 1;
 }
-
+     
 my $cb = Couchbase::Bucket->new('couchbase://' . $dbhost . '/' . $bucket,
                                 {'username' => $dbuser, 'password' => $dbpw});
 
@@ -57,15 +66,12 @@ my $confirmed_block = 0;
 my $unconfirmed_block = 0;
 my $irreversible = 0;
 
-my %contracts_store_deltas;
-my %contracts_store_traces;
+my %acc_store_deltas;
+my %acc_store_traces;
+my %acc_contract_type;
 
-my %contracts_deltas_skip;
-my %acc_traces_skip;
-
-my $last_skip_flush = 0;
-my $flush_skip_every = 7200;
-
+my $contracts_last_fetched = 0;
+refresh_contracts();
 
 {
     my $doc = Couchbase::Document->new('sync:' . $network);
@@ -74,7 +80,6 @@ my $flush_skip_every = 7200;
     {
         $confirmed_block = $doc->value()->{'block_num'};
         $irreversible = $doc->value()->{'irreversible'};
-        $last_skip_flush = $confirmed_block;
     }
 }
 
@@ -142,17 +147,20 @@ sub process_data
             my $block_num = $data->{'block_num'};
             my $block_time = $data->{'block_timestamp'};
             
-            if( $table eq 'tokenconfigs' and defined($kvo->{'value'}{'standard'}) )
+            if( $track_tokenconfigs and
+                $table eq 'tokenconfigs' and defined($kvo->{'value'}{'standard'}) )
             {
                 my $type = 'token:' . $kvo->{'value'}{'standard'};
-                $contracts_store_deltas{$contract} = $type;
-                
+                $acc_store_deltas{$contract} = 1;
+                $acc_contract_type{$contract} = $type;
+
                 my $doc = Couchbase::Document->new(
-                    'contract:' . $network . ':' . $contract, {
+                    'contract:' . $network . ':' . $contract,  {
                         'type' => 'contract',
                         'network' => $network,
                         'account_name' => $contract,
                         'contract_type' => $type,
+                        'track_tables' => 'true',
                         'block_timestamp' => $block_time,
                         'block_num' => $block_num,
                     });
@@ -164,27 +172,20 @@ sub process_data
                 print STDERR '.';
             }
 
-            my $ofinterest;
-            if( defined($contracts_store_deltas{$contract}) )
-            {
-                $ofinterest = 1;
-            }
-            elsif( not $contracts_deltas_skip{$contract} )
-            {
-                $ofinterest = lookup_contract_in_db($contract);
-            }
-
-            if( $ofinterest )
+            if( $acc_store_deltas{$contract} )
             {
                 my $rowid = sha256_hex(
                     join(':', $network, $contract, $table, $kvo->{'scope'}, $kvo->{'primary_key'}));
                 
                 my $id = join(':', 'table_upd', $block_num, $rowid, $data->{'added'});
+                my $type = $acc_contract_type{$contract};
+                $type = 'unnclassified' unless defined($type);
+                
                 my $doc = Couchbase::Document->new(
                     $id,
                     {
                         'type' => 'table_upd',
-                        'contract_type' => $contracts_store_deltas{$contract},
+                        'contract_type' => $acc_store_deltas{$contract},
                         'rowid' => $rowid,
                         'network' => $network,
                         'code' => $contract,
@@ -202,10 +203,6 @@ sub process_data
                     die("Could not store document: " . $doc->errstr);
                 }                
                 print STDERR '.';
-            }
-            else
-            {
-                $contracts_deltas_skip{$contract} = 1;
             }
         }
     }
@@ -225,20 +222,7 @@ sub process_data
             my %accounts_matched;
             foreach my $acc (keys %accounts)
             {
-                my $ofinterest;
-                if( $contracts_store_traces{$acc} )
-                {
-                    $ofinterest = 1;
-                }
-                elsif( not $acc_traces_skip{$acc} )
-                {
-                    if( lookup_contract_in_db($acc) )
-                    {
-                        $ofinterest = $contracts_store_traces{$acc};
-                    }
-                }
-                
-                if( $ofinterest )
+                if( $acc_store_traces{$acc} )
                 {
                     $accounts_matched{$acc} = 1;
                 }
@@ -263,6 +247,7 @@ sub process_data
     }
     elsif( $msgtype == 1009 ) # CHRONICLE_MSGTYPE_RCVR_PAUSE
     {
+        refresh_contracts();
         if( $unconfirmed_block > $confirmed_block )
         {
             $confirmed_block = $unconfirmed_block;
@@ -271,6 +256,7 @@ sub process_data
     }
     elsif( $msgtype == 1010 ) # CHRONICLE_MSGTYPE_BLOCK_COMPLETED
     {
+        refresh_contracts();
         my $block_num = $data->{'block_num'};
         my $block_time = $data->{'block_timestamp'};
         my $last_irreversible = $data->{'last_irreversible'};
@@ -279,22 +265,6 @@ sub process_data
         {
             printf STDERR ("WARNING: missing blocks %d to %d\n", $unconfirmed_block+1, $block_num-1);
         }                           
-
-        {
-            my $doc = Couchbase::Document->new(
-                'sync:' . $network, {
-                    'type' => 'sync',
-                    'network' => $network,
-                    'block_num' => $block_num,
-                    'block_time' => $block_time,
-                    'irreversible' => $last_irreversible
-                });
-            $cb->upsert($doc);
-            if( not $doc->is_ok)
-            {
-                die("Could not store document: " . $doc->errstr);
-            }
-        }
 
         if( $block_num <= $last_irreversible or $last_irreversible > $irreversible )
         {
@@ -349,15 +319,23 @@ sub process_data
             $irreversible = $last_irreversible;
         }                   
 
-        if( $block_num >= $last_skip_flush + $flush_skip_every )
-        {
-            %contracts_deltas_skip = ();
-            $last_skip_flush = $block_num;
-        }
-
         $unconfirmed_block = $block_num;
         if( $unconfirmed_block - $confirmed_block >= $ack_every )
         {
+            my $doc = Couchbase::Document->new(
+                'sync:' . $network, {
+                    'type' => 'sync',
+                    'network' => $network,
+                    'block_num' => $block_num,
+                    'block_time' => $block_time,
+                    'irreversible' => $last_irreversible
+                });
+            $cb->upsert($doc);
+            if( not $doc->is_ok)
+            {
+                die("Could not store document: " . $doc->errstr);
+            }
+
             $confirmed_block = $unconfirmed_block;
             return $confirmed_block;
         }
@@ -366,20 +344,38 @@ sub process_data
 }
 
 
-sub  lookup_contract_in_db
-{
-    my $contract = shift;
 
-    my $doc = Couchbase::Document->new('contract:' . $network . ':' . $contract);
-    $cb->get($doc);
-    if( $doc->is_ok() )
+sub refresh_contracts
+{
+    if( time() - $contracts_last_fetched < 10 )
     {
-        $contracts_store_deltas{$contract} = $doc->value->{'contract_type'};
-        if( defined($doc->value->{'collect_traces'}) and $doc->value->{'collect_traces'} eq 'true' )
-        {
-            $contracts_store_traces{$contract} = 1;
-        }
-        return 1;
+        return;
     }
-    return 0;
+        
+    %acc_store_deltas = ();
+    %acc_store_traces = ();
+    %acc_contract_type = ();
+
+    my $rv = $cb->query_iterator('SELECT * FROM ' . $bucket . ' WHERE type=\'contract\' ' .
+                                 'AND network=\'' . $network  . '\'');
+
+    while((my $row = $rv->next))
+    {
+        my $acc = $row->{$bucket}{'account_name'};
+        next unless defined $acc;
+        
+        if( defined($row->{$bucket}{'track_tables'}) and $row->{$bucket}{'track_tables'} eq 'true' )
+        {
+            $acc_store_deltas{$acc} = 1;
+        }
+        if( defined($row->{$bucket}{'track_tx'}) and $row->{$bucket}{'track_tx'} eq 'true' )
+        {
+            $acc_store_traces{$acc} = 1;
+        }
+        if( defined($row->{$bucket}{'contract_type'}) )
+        {
+            $acc_contract_type{$acc} = $row->{$bucket}{'contract_type'};
+        }
+    }
+    $contracts_last_fetched = time();
 }

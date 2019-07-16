@@ -21,6 +21,8 @@ my $ack_every = 12;
 my $network;
 my $dbhost = '10.0.3.41';
 my $bucket = 'eosio_tables';
+my $dbuser = 'Administrator';
+my $dbpw = 'password';
 
 
 my $ok = GetOptions
@@ -28,7 +30,9 @@ my $ok = GetOptions
      'port=i'    => \$port,
      'ack=i'     => \$ack_every,     
      'dbhost=s'  => \$dbhost,
-     'bucket=s'  => \$bucket);
+     'bucket=s'  => \$bucket,
+     'dbuser=s'  => \$dbuser,
+     'dbpw=s'    => \$dbpw);
 
 
 if( not $ok or scalar(@ARGV) > 0 or not $network )
@@ -45,7 +49,7 @@ if( not $ok or scalar(@ARGV) > 0 or not $network )
 }
 
 my $cb = Couchbase::Bucket->new('couchbase://' . $dbhost . '/' . $bucket,
-                                {'username' => 'Administrator', 'password' => 'password'});
+                                {'username' => $dbuser, 'password' => $dbpw});
 
 my $json = JSON->new->canonical;
 

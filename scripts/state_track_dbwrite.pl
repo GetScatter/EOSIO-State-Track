@@ -192,6 +192,7 @@ sub process_data
                         'tblname' => $table,
                         'added' => $data->{'added'},
                         'scope' => $kvo->{'scope'},
+                        'primary_key' => $kvo->{'primary_key'},    
                         'rowval' => $kvo->{'value'},
                         'block_timestamp' => $block_time,
                         'block_num' => $block_num,

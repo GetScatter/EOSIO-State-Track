@@ -1,0 +1,18 @@
+[Unit]
+Description=state_track DB Writer
+
+[Service]
+Type=simple
+Environment="STATETRACK_HOME=/opt/eosio_state_track"
+EnvironmentFile=/etc/default/state_track_%i
+
+ExecStart=/usr/bin/perl ${STATETRACK_HOME}/scripts/state_track_dbwrite.pl --network=%i $DBWRITE_OPTS
+TimeoutSec=45s
+Restart=always
+User=root
+Group=daemon
+KillMode=control-group
+
+
+[Install]
+WantedBy=multi-user.target

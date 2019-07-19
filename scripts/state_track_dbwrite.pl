@@ -79,7 +79,9 @@ refresh_contracts();
     if( $doc->is_ok() )
     {
         $confirmed_block = $doc->value()->{'block_num'};
+        $unconfirmed_block = $confirmed_block; 
         $irreversible = $doc->value()->{'irreversible'};
+        print STDERR "Last confirmed block: $confirmed_block, Irreversible: $irreversible\n";
     }
 }
 

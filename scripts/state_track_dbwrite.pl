@@ -3,6 +3,7 @@ use warnings;
 use JSON;
 use Getopt::Long;
 use Digest::SHA qw(sha256_hex);
+use Time::HiRes qw (time sleep);
 
 use Couchbase::Bucket;
 use Couchbase::Document;
@@ -70,6 +71,9 @@ my %acc_store_deltas;
 my %acc_store_traces;
 my %acc_contract_type;
 
+my $has_updates = time();
+my $last_check_updates = 0;
+    
 my $contracts_last_fetched = 0;
 refresh_contracts();
 
@@ -129,6 +133,7 @@ sub process_data
         my $block_num = $data->{'block_num'};
         print STDERR "fork at $block_num\n";
 
+        sleep(2);
         $cb->query_slurp('DELETE FROM ' . $bucket . ' WHERE type=\'table_upd\' ' .
                          'AND network=\'' . $network . '\' AND TONUM(block_num)>=' . $block_num);
             
@@ -205,7 +210,8 @@ sub process_data
                 {
                     die("Could not store document: " . $doc->errstr);
                 }                
-                print STDERR '.';
+                $has_updates = time();
+                print STDERR '+';
             }
         }
     }
@@ -244,7 +250,8 @@ sub process_data
                 {
                     die("Could not store document: " . $doc->errstr);
                 }
-                print STDERR '.';
+                $has_updates = time();
+                print STDERR '*';
             }
         }
     }
@@ -269,14 +276,15 @@ sub process_data
             printf STDERR ("WARNING: missing blocks %d to %d\n", $unconfirmed_block+1, $block_num-1);
         }                           
 
-        if( $block_num <= $last_irreversible or $last_irreversible > $irreversible )
-        {
+        if( ($has_updates + 2 >= time() and $last_check_updates + 0.5 <= time()) or
+            $last_check_updates + 2 < time() )
+        {                
             ## process updates
             my $rv = $cb->query_iterator
                 ('SELECT META().id,* FROM ' . $bucket . ' WHERE type=\'table_upd\' ' .
                  'AND network=\'' . $network . '\' AND TONUM(block_num)<=' . $last_irreversible .
                  ' ORDER BY TONUM(block_num_x)');
-
+            
             while((my $row = $rv->next))
             {                
                 my $obj = $row->{$bucket};
@@ -288,7 +296,7 @@ sub process_data
                     delete $obj->{'rowid'};
                     delete $obj->{'block_num_x'};
                     $obj->{'type'} = 'table_row';
-                                        
+                    
                     my $doc = Couchbase::Document->new($tbl_id, $obj);
                     $cb->upsert($doc);
                     if( not $doc->is_ok)
@@ -305,7 +313,7 @@ sub process_data
                         die("Could not remove document: " . $doc->errstr);
                     }
                 }
-
+                
                 {
                     my $doc = Couchbase::Document->new($row->{'id'});
                     $cb->remove($doc);
@@ -315,10 +323,15 @@ sub process_data
                     }
                 }
             }
-
+            
             $cb->query_slurp('UPDATE ' . $bucket . ' SET type=\'transaction\' WHERE type=\'transaction_upd\' ' .
                              'AND network=\'' . $network . '\' AND TONUM(block_num)<=' . $last_irreversible);
+            
+            $last_check_updates = time();
+        }
 
+        if( $block_num <= $last_irreversible or $last_irreversible > $irreversible )
+        {
             $irreversible = $last_irreversible;
         }                   
 

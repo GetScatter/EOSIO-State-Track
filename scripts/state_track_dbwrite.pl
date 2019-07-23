@@ -187,7 +187,7 @@ sub process_data
                     $id,
                     {
                         'type' => 'table_upd',
-                        'contract_type' => $acc_store_deltas{$contract},
+                        'contract_type' => $type,
                         'rowid' => $rowid,
                         'network' => $network,
                         'code' => $contract,

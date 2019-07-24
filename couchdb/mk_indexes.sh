@@ -21,8 +21,6 @@ q "CREATE INDEX tbl_row_04 ON $COUCH_BUCKET(network,scope) WHERE type = 'table_r
 
 q "CREATE INDEX tbl_row_05 ON $COUCH_BUCKET(network,code,scope,primary_key) WHERE type = 'table_row'"
 
-q "CREATE INDEX tbl_row_06 ON $COUCH_BUCKET(network,code,scope,rowval) WHERE type = 'table_row'"
-
 q "CREATE INDEX tx_01 ON $COUCH_BUCKET(network, DISTINCT ARRAY acc FOR acc IN tx_accounts END, TONUM(block_num)) WHERE type = 'transaction'"
 
 q "CREATE INDEX tx_upd_01 ON $COUCH_BUCKET(network,TONUM(block_num)) WHERE type = 'transaction_upd'"

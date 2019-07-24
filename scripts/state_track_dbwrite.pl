@@ -71,8 +71,9 @@ my %acc_store_deltas;
 my %acc_store_traces;
 my %acc_contract_type;
 
-my $has_updates = time();
-my $last_check_updates = 0;
+# set them to nonzero to process all leftovers on first run
+my $has_upd_tables = 1;
+my $has_upd_tx = 1;
     
 my $contracts_last_fetched = 0;
 refresh_contracts();
@@ -133,12 +134,13 @@ sub process_data
         my $block_num = $data->{'block_num'};
         print STDERR "fork at $block_num\n";
 
-        sleep(2);
         $cb->query_slurp('DELETE FROM ' . $bucket . ' WHERE type=\'table_upd\' ' .
-                         'AND network=\'' . $network . '\' AND TONUM(block_num)>=' . $block_num);
+                         'AND network=\'' . $network . '\' AND TONUM(block_num)>=' . $block_num,
+                         {}, {'scan_consistency' => '"request_plus"'});
             
         $cb->query_slurp('DELETE FROM ' . $bucket . ' WHERE type=\'transaction_upd\' ' .
-                         'AND network=\'' . $network . '\' AND TONUM(block_num)>=' . $block_num);
+                         'AND network=\'' . $network . '\' AND TONUM(block_num)>=' . $block_num,
+                         {}, {'scan_consistency' => '"request_plus"'});
 
         $confirmed_block = $block_num-1;
         $unconfirmed_block = $block_num-1;
@@ -210,7 +212,7 @@ sub process_data
                 {
                     die("Could not store document: " . $doc->errstr);
                 }                
-                $has_updates = time();
+                $has_upd_tables = $block_num;
                 print STDERR '+';
             }
         }
@@ -250,7 +252,7 @@ sub process_data
                 {
                     die("Could not store document: " . $doc->errstr);
                 }
-                $has_updates = time();
+                $has_upd_tx = $data->{'block_num'};
                 print STDERR '*';
             }
         }
@@ -276,62 +278,74 @@ sub process_data
             printf STDERR ("WARNING: missing blocks %d to %d\n", $unconfirmed_block+1, $block_num-1);
         }                           
 
-        if( ($has_updates + 2 >= time() and $last_check_updates + 0.5 <= time()) or
-            $last_check_updates + 2 < time() )
-        {                
-            ## process updates
-            my $rv = $cb->query_iterator
-                ('SELECT META().id,* FROM ' . $bucket . ' WHERE type=\'table_upd\' ' .
-                 'AND network=\'' . $network . '\' AND TONUM(block_num)<=' . $last_irreversible .
-                 ' ORDER BY TONUM(block_num_x)');
-            
-            while((my $row = $rv->next))
-            {                
-                my $obj = $row->{$bucket};
-                my $tbl_id = join(':', 'table_row', $obj->{'rowid'});
-                
-                if( $obj->{'added'} eq 'true' )
-                {
-                    delete $obj->{'added'};
-                    delete $obj->{'rowid'};
-                    delete $obj->{'block_num_x'};
-                    $obj->{'type'} = 'table_row';
-                    
-                    my $doc = Couchbase::Document->new($tbl_id, $obj);
-                    $cb->upsert($doc);
-                    if( not $doc->is_ok)
-                    {
-                        die("Could not store document: " . $doc->errstr);
-                    }
-                }
-                else
-                {
-                    my $doc = Couchbase::Document->new($tbl_id);
-                    $cb->remove($doc);
-                    if( not $doc->is_ok and not $doc->is_not_found )
-                    {
-                        die("Could not remove document: " . $doc->errstr);
-                    }
-                }
-                
-                {
-                    my $doc = Couchbase::Document->new($row->{'id'});
-                    $cb->remove($doc);
-                    if( not $doc->is_ok )
-                    {
-                        die("Could not remove document: " . $doc->errstr);
-                    }
-                }
-            }
-            
-            $cb->query_slurp('UPDATE ' . $bucket . ' SET type=\'transaction\' WHERE type=\'transaction_upd\' ' .
-                             'AND network=\'' . $network . '\' AND TONUM(block_num)<=' . $last_irreversible);
-            
-            $last_check_updates = time();
-        }
-
         if( $block_num <= $last_irreversible or $last_irreversible > $irreversible )
         {
+            if( $has_upd_tables > 0 )
+            {                
+                ## process updates
+                my $rv = $cb->query_iterator
+                    ('SELECT META().id,* FROM ' . $bucket . ' WHERE type=\'table_upd\' ' .
+                     'AND network=\'' . $network . '\' AND TONUM(block_num)<=' . $last_irreversible .
+                     ' ORDER BY TONUM(block_num_x)',
+                    {}, {'scan_consistency' => '"request_plus"'});
+                
+                while((my $row = $rv->next))
+                {                
+                    my $obj = $row->{$bucket};
+                    my $tbl_id = join(':', 'table_row', $obj->{'rowid'});
+                    
+                    if( $obj->{'added'} eq 'true' )
+                    {
+                        delete $obj->{'added'};
+                        delete $obj->{'rowid'};
+                        delete $obj->{'block_num_x'};
+                        $obj->{'type'} = 'table_row';
+                        
+                        my $doc = Couchbase::Document->new($tbl_id, $obj);
+                        $cb->upsert($doc);
+                        if( not $doc->is_ok)
+                        {
+                            die("Could not store document: " . $doc->errstr);
+                        }
+                    }
+                    else
+                    {
+                        my $doc = Couchbase::Document->new($tbl_id);
+                        $cb->remove($doc);
+                        if( not $doc->is_ok and not $doc->is_not_found )
+                        {
+                            die("Could not remove document: " . $doc->errstr);
+                        }
+                    }
+                    
+                    {
+                        my $doc = Couchbase::Document->new($row->{'id'});
+                        $cb->remove($doc);
+                        if( not $doc->is_ok )
+                        {
+                            die("Could not remove document: " . $doc->errstr);
+                        }
+                    }
+                }
+
+                if( $has_upd_tables <= $last_irreversible )
+                {
+                    $has_upd_tables = 0;
+                }
+            }
+
+            if( $has_upd_tx > 0 )
+            {
+                $cb->query_slurp('UPDATE ' . $bucket . ' SET type=\'transaction\' WHERE type=\'transaction_upd\' ' .
+                                 'AND network=\'' . $network . '\' AND TONUM(block_num)<=' . $last_irreversible,
+                                 {}, {'scan_consistency' => '"request_plus"'});
+
+                if( $has_upd_tx <= $last_irreversible )
+                {
+                    $has_upd_tx= 0;
+                }
+            }
+
             $irreversible = $last_irreversible;
         }                   
 

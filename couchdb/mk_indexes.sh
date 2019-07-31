@@ -12,8 +12,9 @@ q "CREATE INDEX contract_01 ON $COUCH_BUCKET(network,contract_type,account_name)
 
 q "CREATE INDEX tbl_upd_01 ON $COUCH_BUCKET(network,TONUM(block_num)) WHERE type = 'table_upd'"
 
-q "CREATE INDEX tbl_upd_02 ON $COUCH_BUCKET(network,code,tblname,scope,primary_key) WHERE type = 'table_upd'"
+q "CREATE INDEX tbl_upd_02 ON $COUCH_BUCKET(network,code,tblname,scope,primary_key,added) WHERE type = 'table_upd'"
 
+q "CREATE INDEX tbl_upd_03 ON $COUCH_BUCKET(network,contract_type,tblname,scope,added) WHERE type = 'table_upd'"
 
 
 q "CREATE INDEX tbl_row_02 ON $COUCH_BUCKET(network,code,tblname,scope,primary_key) WHERE type = 'table_row'"

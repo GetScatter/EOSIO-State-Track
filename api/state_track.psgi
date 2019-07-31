@@ -151,7 +151,7 @@ $builder->mount
          my $ctype = $p->{'contract_type'};
          if( defined($ctype) )
          {
-             return(error($req, "invalid contract_type")) unless ($ctype =~ /^\w+$/);
+             return(error($req, "invalid contract_type")) unless ($ctype =~ /^[a-z0-9:_]+$/);
              $ctype_filter = ' AND contract_type=\'' . $ctype . '\' ';
          }
          
@@ -309,6 +309,42 @@ $builder->mount
          return push_one_or_nothing($ret);
      });
 
+
+
+
+$builder->mount
+    ($CFG::apiprefix . 'table_rows_by_scope' => sub {
+         my $env = shift;
+         my $req = Plack::Request->new($env);
+         my $p = $req->parameters();
+         my $network = $p->{'network'};
+         return(error($req, "'network' is not specified")) unless defined($network);
+         return(error($req, "invalid network")) unless ($network =~ /^\w+$/);
+
+         my $ctype = $p->{'contract_type'};
+         return(error($req, "'contract_type' is not specified")) unless defined($ctype);
+         return(error($req, "invalid contract_type")) unless ($ctype =~ /^[a-z0-9:_]+$/);
+
+         my $table = $p->{'table'};
+         return(error($req, "'table' is not specified")) unless defined($table);
+         return(error($req, "invalid table")) unless ($table =~ /^[1-5a-z.]{1,13}$/);
+
+         my $scope = $p->{'scope'};
+         return(error($req, "'scope' is not specified")) unless defined($scope);
+         return(error($req, "invalid scope")) unless ($scope =~ /^[1-5a-z.]{1,13}$/);
+         
+         return iterate_and_push
+             ($cb,
+              'SELECT block_num,code,primary_key,rowval ' .
+              'FROM ' . $CFG::bucket . ' WHERE type=\'table_row\' ' .
+              ' AND network=\'' . $network . '\' AND contract_type=\'' . $ctype . '\' ' .
+              ' AND tblname=\'' . $table . '\' AND scope=\'' . $scope . '\' ' .
+              'UNION ALL (SELECT block_num,code,primary_key,rowval ' .
+              'FROM ' . $CFG::bucket . ' WHERE type=\'table_upd\' ' .
+              ' AND network=\'' . $network . '\' AND contract_type=\'' . $ctype . '\' ' .
+              ' AND tblname=\'' . $table . '\' AND scope=\'' . $scope . '\' AND added=\'true\') ' .
+              'ORDER BY TONUM(block_num)');
+     });
 
 
 

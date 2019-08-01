@@ -21,7 +21,7 @@ my $network;
 my $track_tokenconfigs = 1;
 
 my $port = 8100;
-my $ack_every = 120;
+my $ack_every = 4;
 
 my $dbhost = '127.0.0.1';
 my $bucket = 'state_track';

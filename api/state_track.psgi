@@ -92,7 +92,7 @@ sub iterate_and_push
             }
         }
         
-        send_event($writer, ['event', 'end', 'data', 'count=' . $count]);
+        send_event($writer, ['event', 'end', 'data', $json->encode({'count' => $count})]);
         $writer->close();
     };
 }
@@ -111,7 +111,7 @@ sub push_one_or_nothing
             send_event($writer, ['event', 'row', 'data', $json->encode({%{$val}})]);
             $count++;
         }
-        send_event($writer, ['event', 'end', 'data', 'count=' . $count]);
+        send_event($writer, ['event', 'end', 'data', $json->encode({'count' => $count})]);
         $writer->close();
     }
 }

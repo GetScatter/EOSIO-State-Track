@@ -5,6 +5,7 @@ use Plack::Builder;
 use Plack::Request;
 use Plack::App::EventSource;
 use Couchbase::Bucket;
+#use Data::Dumper;
 
 BEGIN {
     if( not defined($ENV{'STATE_TRACK_CFG'}) )
@@ -65,22 +66,28 @@ sub send_event
 sub iterate_and_push
 {
     my $cb = shift;
-    my $rv = $cb->query_iterator(@_);
+    my @queries = @_;
 
     return sub {
         my $responder = shift;
         my $writer = get_writer($responder);
 
-        while( (my $row = $rv->next()) )
+        foreach my $q (@queries)
         {
-            my $event = ['event', 'row'];
-            if( defined($row->{'id'}) )
-            {
-                push(@{$event}, 'id', $row->{'id'});
-            }
+            my $eventtype = shift(@{$q});
+            my $rv = $cb->query_iterator(@{$q});
 
-            push(@{$event}, 'data', $json->encode({%{$row}}));
-            send_event($writer, $event);
+            while( (my $row = $rv->next()) )
+            {
+                my $event = ['event', $eventtype];
+                if( defined($row->{'id'}) )
+                {
+                    push(@{$event}, 'id', $row->{'id'});
+                }
+                
+                push(@{$event}, 'data', $json->encode({%{$row}}));
+                send_event($writer, $event);
+            }
         }
         
         send_event($writer, ['event', 'end']);
@@ -133,8 +140,8 @@ $builder->mount
          
          return iterate_and_push
              ($cb,
-              'SELECT META().id,block_num,block_time,irreversible,network ' .
-              'FROM ' . $CFG::bucket . ' WHERE type=\'sync\'');
+              ['row', 'SELECT META().id,block_num,block_time,irreversible,network ' .
+               'FROM ' . $CFG::bucket . ' WHERE type=\'sync\'']);
      });
 
 
@@ -157,10 +164,11 @@ $builder->mount
          
          return iterate_and_push
              ($cb,
-              'SELECT META().id, account_name, contract_type, track_tables, ' .
-              'track_tx, block_timestamp, block_num ' .
-              'FROM ' . $CFG::bucket . ' WHERE type=\'contract\' AND network=\'' . $network . '\'' .
-              $ctype_filter);
+              ['row',
+               'SELECT META().id, account_name, contract_type, track_tables, ' .
+               'track_tx, block_timestamp, block_num ' .
+               'FROM ' . $CFG::bucket . ' WHERE type=\'contract\' AND network=\'' . $network . '\'' .
+               $ctype_filter]);
      });
 
 
@@ -179,9 +187,10 @@ $builder->mount
          
          return iterate_and_push
              ($cb,
-              'SELECT distinct tblname ' .
-              'FROM ' . $CFG::bucket . ' WHERE (type=\'table_row\' OR type=\'table_upd\') ' .
-              ' AND network=\'' . $network . '\' AND code=\'' . $code . '\'' );
+              ['row',
+               'SELECT distinct tblname ' .
+               'FROM ' . $CFG::bucket . ' WHERE (type=\'table_row\' OR type=\'table_upd\') ' .
+               ' AND network=\'' . $network . '\' AND code=\'' . $code . '\'']);
      });
 
 
@@ -204,10 +213,11 @@ $builder->mount
          
          return iterate_and_push
              ($cb,
-              'SELECT distinct scope ' .
-              'FROM ' . $CFG::bucket . ' WHERE (type=\'table_row\' OR type=\'table_upd\') ' .
-              ' AND network=\'' . $network . '\' AND code=\'' . $code . '\' ' .
-              ' AND tblname=\'' . $table . '\'');
+              ['row',
+               'SELECT distinct scope ' .
+               'FROM ' . $CFG::bucket . ' WHERE (type=\'table_row\' OR type=\'table_upd\') ' .
+               ' AND network=\'' . $network . '\' AND code=\'' . $code . '\' ' .
+               ' AND tblname=\'' . $table . '\'']);
      });
 
 
@@ -234,15 +244,17 @@ $builder->mount
          
          return iterate_and_push
              ($cb,
-              'SELECT block_num,primary_key,rowval ' .
-              'FROM ' . $CFG::bucket . ' WHERE type=\'table_row\' ' .
-              ' AND network=\'' . $network . '\' AND code=\'' . $code . '\' ' .
-              ' AND tblname=\'' . $table . '\' AND scope=\'' . $scope . '\' ' .
-              'UNION ALL (SELECT block_num,primary_key,rowval ' .
-              'FROM ' . $CFG::bucket . ' WHERE type=\'table_upd\' ' .
-              ' AND network=\'' . $network . '\' AND code=\'' . $code . '\' ' .
-              ' AND tblname=\'' . $table . '\' AND scope=\'' . $scope . '\' AND added=\'true\') ' .
-              'ORDER BY TONUM(block_num)');
+              ['row',
+               'SELECT META().id,block_num,primary_key,rowval ' .
+               'FROM ' . $CFG::bucket . ' WHERE type=\'table_row\' ' .
+               ' AND network=\'' . $network . '\' AND code=\'' . $code . '\' ' .
+               ' AND tblname=\'' . $table . '\' AND scope=\'' . $scope . '\''],
+              ['rowupd',
+               'SELECT META().id,block_num,primary_key,added,rowval ' .
+               'FROM ' . $CFG::bucket . ' WHERE type=\'table_upd\' ' .
+               ' AND network=\'' . $network . '\' AND code=\'' . $code . '\' ' .
+               ' AND tblname=\'' . $table . '\' AND scope=\'' . $scope . '\' ' .
+               'ORDER BY TONUM(block_num_x)']);
      });
 
 
@@ -335,15 +347,17 @@ $builder->mount
          
          return iterate_and_push
              ($cb,
-              'SELECT block_num,code,primary_key,rowval ' .
-              'FROM ' . $CFG::bucket . ' WHERE type=\'table_row\' ' .
-              ' AND network=\'' . $network . '\' AND contract_type=\'' . $ctype . '\' ' .
-              ' AND tblname=\'' . $table . '\' AND scope=\'' . $scope . '\' ' .
-              'UNION ALL (SELECT block_num,code,primary_key,rowval ' .
-              'FROM ' . $CFG::bucket . ' WHERE type=\'table_upd\' ' .
-              ' AND network=\'' . $network . '\' AND contract_type=\'' . $ctype . '\' ' .
-              ' AND tblname=\'' . $table . '\' AND scope=\'' . $scope . '\' AND added=\'true\') ' .
-              'ORDER BY TONUM(block_num)');
+              ['row',
+               'SELECT META().id,block_num,code,primary_key,rowval ' .
+               'FROM ' . $CFG::bucket . ' WHERE type=\'table_row\' ' .
+               ' AND network=\'' . $network . '\' AND contract_type=\'' . $ctype . '\' ' .
+               ' AND tblname=\'' . $table . '\' AND scope=\'' . $scope . '\''],
+              ['rowupd',
+               'SELECT META().id,block_num,added,code,primary_key,rowval ' .
+               'FROM ' . $CFG::bucket . ' WHERE type=\'table_upd\' ' .
+               ' AND network=\'' . $network . '\' AND contract_type=\'' . $ctype . '\' ' .
+               ' AND tblname=\'' . $table . '\' AND scope=\'' . $scope . '\'' .
+               'ORDER BY TONUM(block_num_x)']);
      });
 
 

@@ -71,7 +71,8 @@ sub iterate_and_push
     return sub {
         my $responder = shift;
         my $writer = get_writer($responder);
-
+        my $count = 0;
+        
         foreach my $q (@queries)
         {
             my $eventtype = shift(@{$q});
@@ -87,10 +88,11 @@ sub iterate_and_push
                 
                 push(@{$event}, 'data', $json->encode({%{$row}}));
                 send_event($writer, $event);
+                $count++;
             }
         }
         
-        send_event($writer, ['event', 'end']);
+        send_event($writer, ['event', 'end', 'data', 'count=' . $count]);
         $writer->close();
     };
 }
@@ -103,11 +105,13 @@ sub push_one_or_nothing
     return sub {
         my $responder = shift;
         my $writer = get_writer($responder);
+        my $count = 0;
         if( defined($val) )
         {
             send_event($writer, ['event', 'row', 'data', $json->encode({%{$val}})]);
+            $count++;
         }
-        send_event($writer, ['event', 'end']);
+        send_event($writer, ['event', 'end', 'data', 'count=' . $count]);
         $writer->close();
     }
 }
@@ -361,6 +365,61 @@ $builder->mount
      });
 
 
+
+$builder->mount
+    ($CFG::apiprefix . 'account_history' => sub {
+         my $env = shift;
+         my $req = Plack::Request->new($env);
+         my $p = $req->parameters();
+         my $network = $p->{'network'};
+         return(error($req, "'network' is not specified")) unless defined($network);
+         return(error($req, "invalid network")) unless ($network =~ /^\w+$/);
+
+         my $account = $p->{'account'};
+         return(error($req, "'account' is not specified")) unless defined($account);
+         return(error($req, "invalid account")) unless ($account =~ /^[1-5a-z.]{1,13}$/);
+
+         my $maxrows = $p->{'maxrows'};
+         $maxrows = 100 unless defined($maxrows);
+
+         my $filter = '';
+         my $block_order = '';
+         my $start_block = $p->{'start_block'};
+         if( defined($start_block) )
+         {
+             return(error($req, "invalid start_block")) unless ($start_block =~ /^\d+$/);
+             $filter .= ' AND TONUM(block_num) >= ' . $start_block;
+         }
+
+         my $end_block = $p->{'end_block'};
+         if( defined($end_block) )
+         {
+             return(error($req, "invalid end_block")) unless ($end_block =~ /^\d+$/);
+             $filter .= ' AND TONUM(block_num) <= ' . $end_block;
+         }
+
+         if( $filter ne '' )
+         {
+             $block_order = 'TONUM(block_num) DESC,';
+         }
+
+         return iterate_and_push
+             ($cb,
+              ['tx',
+               'SELECT META().id,block_num,block_timestamp,trace, \'false\' as irreversible ' .
+               'FROM ' . $CFG::bucket . ' WHERE type=\'transaction_upd\' ' .
+               ' AND ANY acc IN tx_accounts SATISFIES acc=\'' . $account . '\' END ' .
+               $filter .
+               ' ORDER BY ' . $block_order . 'TONUM(trace.action_traces[0].receipt.global_sequence) DESC ' .
+               ' LIMIT ' . $maxrows],
+              ['tx',
+               'SELECT META().id,block_num,block_timestamp,trace, \'true\' as irreversible ' .
+               'FROM ' . $CFG::bucket . ' WHERE type=\'transaction\' ' .
+               ' AND ANY acc IN tx_accounts SATISFIES acc=\'' . $account . '\' END ' .
+               $filter .
+               ' ORDER BY ' . $block_order . 'TONUM(trace.action_traces[0].receipt.global_sequence) DESC ' .
+               ' LIMIT ' . $maxrows]);
+     });
 
 
 $builder->to_app;

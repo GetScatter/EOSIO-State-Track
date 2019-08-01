@@ -24,6 +24,11 @@ q "CREATE INDEX tbl_row_03 ON $COUCH_BUCKET(network,contract_type,tblname,scope)
 
 
 
-q "CREATE INDEX tx_01 ON $COUCH_BUCKET(network, DISTINCT ARRAY acc FOR acc IN tx_accounts END, TONUM(block_num)) WHERE type = 'transaction'"
+q "CREATE INDEX tx_01 ON $COUCH_BUCKET(network, DISTINCT ARRAY acc FOR acc IN tx_accounts END, TONUM(trace.action_traces[0].receipt.global_sequence) DESC) WHERE type = 'transaction'"
+
+q "CREATE INDEX tx_02 ON $COUCH_BUCKET(network, DISTINCT ARRAY acc FOR acc IN tx_accounts END, TONUM(block_num) DESC, TONUM(trace.action_traces[0].receipt.global_sequence) DESC) WHERE type = 'transaction'"
+
 
 q "CREATE INDEX tx_upd_01 ON $COUCH_BUCKET(network,TONUM(block_num)) WHERE type = 'transaction_upd'"
+
+q "CREATE INDEX tx_upd_02 ON $COUCH_BUCKET(network, DISTINCT ARRAY acc FOR acc IN tx_accounts END, TONUM(block_num),TONUM(trace.action_traces[0].receipt.global_sequence)) WHERE type = 'transaction_upd'"

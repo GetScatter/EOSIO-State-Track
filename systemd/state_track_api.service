@@ -1,0 +1,23 @@
+[Unit]
+Description=State Track API
+
+[Service]
+Type=simple
+Environment="STATE_TRACK_CFG=/etc/eosio_state_track/default.pl"
+Environment="STATE_TRACK_HOME=/opt/eosio_state_track"
+Environment="LISTEN=0.0.0.0:5001"
+Environment="WORKERS=6"
+EnvironmentFile=-/etc/default/state_track_api
+ExecStart=/usr/local/bin/starman --listen ${LISTEN} --workers ${WORKERS} ${STATE_TRACK_HOME}/api/state_track.psgi
+TimeoutSec=45s
+Restart=always
+User=root
+Group=daemon
+KillMode=control-group
+
+
+
+[Install]
+WantedBy=multi-user.target
+
+

@@ -3,7 +3,6 @@ use warnings;
 use JSON;
 use Plack::Builder;
 use Plack::Request;
-use Plack::App::EventSource;
 use Couchbase::Bucket;
 #use Data::Dumper;
 

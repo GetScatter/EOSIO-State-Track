@@ -421,6 +421,64 @@ $builder->mount
      });
 
 
+
+$builder->mount
+    ($CFG::apiprefix . 'tokens' => sub {
+         my $env = shift;
+         my $req = Plack::Request->new($env);
+         my $p = $req->parameters();
+         my $network = $p->{'network'};
+         return(error($req, "'network' is not specified")) unless defined($network);
+         return(error($req, "invalid network")) unless ($network =~ /^\w+$/);
+
+         my $account = $p->{'account'};
+         return(error($req, "'account' is not specified")) unless defined($account);
+         return(error($req, "invalid account")) unless ($account =~ /^[1-5a-z.]{1,13}$/);
+
+         return iterate_and_push
+             ($cb,
+              ['row',
+               'SELECT META().id,contract_type,code,tblname,scope,primary_key,rowval ' .
+               'FROM ' . $CFG::bucket . ' use index(tbl_row_04) ' .
+               'WHERE type=\'table_row\' ' .
+               ' AND network=\'' . $network . '\' AND contract_type=\'token:dgoods\' ' .
+               ' AND tblname=\'dgood\' AND scope=code AND rowval.owner=\'' . $account . '\''],
+
+              ['row',
+               'SELECT META().id,contract_type,code,tblname,scope,primary_key,rowval ' .
+               'FROM ' . $CFG::bucket . ' WHERE type=\'table_row\' ' .
+               ' AND network=\'' . $network . '\' AND contract_type=\'token:dgoods\' ' .
+               ' AND tblname=\'accounts\' AND scope=\'' . $account . '\''],
+
+              ['row',
+               'SELECT META().id,contract_type,code,tblname,scope,primary_key,rowval ' .
+               'FROM ' . $CFG::bucket . ' WHERE type=\'table_row\' ' .
+               ' AND network=\'' . $network . '\' AND contract_type=\'token:simpleassets\' ' .
+               ' AND tblname IN [\'accounts\',\'sassets\'] AND scope=\'' . $account . '\''],
+                
+              ['rowupd',
+               'SELECT META().id,added,contract_type,code,tblname,scope,primary_key,rowval ' .
+               'FROM ' . $CFG::bucket . ' use index(tbl_upd_04) ' .
+               'WHERE type=\'table_upd\' ' .
+               ' AND network=\'' . $network . '\' AND contract_type=\'token:dgoods\' ' .
+               ' AND tblname=\'dgood\' AND scope=code AND rowval.owner=\'' . $account . '\''],
+              
+              ['rowupd',
+               'SELECT META().id,added,contract_type,code,tblname,scope,primary_key,rowval ' .
+               'FROM ' . $CFG::bucket . ' WHERE type=\'table_upd\' ' .
+               ' AND network=\'' . $network . '\' AND contract_type=\'token:dgoods\' ' .
+               ' AND tblname=\'accounts\' AND scope=\'' . $account . '\''],
+
+              ['rowupd',
+               'SELECT META().id,added,contract_type,code,tblname,scope,primary_key,rowval ' .
+               'FROM ' . $CFG::bucket . ' WHERE type=\'table_upd\' ' .
+               ' AND network=\'' . $network . '\' AND contract_type=\'token:simpleassets\' ' .
+               ' AND tblname IN [\'accounts\',\'sassets\'] AND scope=\'' . $account . '\''],
+
+             );
+     });
+
+         
 $builder->to_app;
 
 

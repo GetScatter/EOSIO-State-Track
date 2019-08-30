@@ -172,7 +172,7 @@ $builder->mount
          }
          else
          {
-             my $res = $req->new_response(503);
+             my $res = $req->new_response(200);
              $res->content_type('text/plain');
              $res->body('OK ' . $max . "\x0d\x0a");
              return $res->finalize;

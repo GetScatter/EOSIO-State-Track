@@ -2,9 +2,7 @@
 
 alias q="cbc-n1ql -u $COUCH_USER -P $COUCH_PW -U couchbase://localhost/$COUCH_BUCKET"
 
-q "CREATE PRIMARY INDEX ON $COUCH_BUCKET"
-
-q "CREATE INDEX type_01 ON $COUCH_BUCKET(type)"
+q "CREATE INDEX sync_01 ON $COUCH_BUCKET(head_reached) WHERE type = 'sync'"
 
 q "CREATE INDEX contract_01 ON $COUCH_BUCKET(network,contract_type,account_name) WHERE type = 'contract'"
 

@@ -4,7 +4,9 @@ use JSON;
 use Plack::Builder;
 use Plack::Request;
 use Couchbase::Bucket;
-#use Data::Dumper;
+use Time::HiRes qw(time);
+use DateTime;
+use DateTime::Format::ISO8601;
 
 BEGIN {
     if( not defined($ENV{'STATE_TRACK_CFG'}) )
@@ -137,6 +139,48 @@ my $cb = Couchbase::Bucket->new('couchbase://' . $CFG::dbhost . '/' . $CFG::buck
 my $builder = Plack::Builder->new;
 
 $builder->mount
+    ($CFG::apiprefix . 'status' => sub {
+         my $env = shift;
+         my $req = Plack::Request->new($env);
+         
+         my $rv = $cb->query_iterator
+             ('SELECT block_time,network ' .
+              'FROM ' . $CFG::bucket . ' WHERE type=\'sync\' AND head_reached=1');
+         my $max = 0;
+         my $network = '';
+         
+         while( (my $row = $rv->next()) )
+         {
+             my $bt = DateTime::Format::ISO8601->parse_datetime($row->{'block_time'});
+             $bt->set_time_zone('UTC');
+
+             my $now = DateTime->from_epoch(epoch => time(), 'time_zone' => 'UTC');
+             my $diff = $now->subtract_datetime_absolute($bt)->in_units('nanoseconds')/1.0e9;             
+             if( $max < $diff )
+             {
+                 $max = $diff;
+                 $network = $row->{'network'};
+             }
+         }
+
+         if( $max > 60 )
+         {
+             my $res = $req->new_response(503);
+             $res->content_type('text/plain');
+             $res->body('OUT_OF_SYNC ' . $max . ' ' . $network . "\x0d\x0a");
+             return $res->finalize;
+         }
+         else
+         {
+             my $res = $req->new_response(503);
+             $res->content_type('text/plain');
+             $res->body('OK ' . $max . "\x0d\x0a");
+             return $res->finalize;
+         }
+     });
+
+
+$builder->mount
     ($CFG::apiprefix . 'networks' => sub {
          my $env = shift;
          my $req = Plack::Request->new($env);
@@ -144,7 +188,7 @@ $builder->mount
          return iterate_and_push
              ($cb,
               ['row', 'SELECT META().id,block_num,block_time,irreversible,network ' .
-               'FROM ' . $CFG::bucket . ' WHERE type=\'sync\'']);
+               'FROM ' . $CFG::bucket . ' WHERE type=\'sync\' AND head_reached=1']);
      });
 
 

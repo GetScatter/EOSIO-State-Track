@@ -66,6 +66,7 @@ my $json = JSON->new->canonical;
 my $confirmed_block = 0;
 my $unconfirmed_block = 0;
 my $irreversible = 0;
+my $head_reached = 0;
 
 my %acc_store_deltas;
 my %acc_store_traces;
@@ -86,6 +87,7 @@ refresh_contracts();
         $confirmed_block = $doc->value()->{'block_num'};
         $unconfirmed_block = $confirmed_block; 
         $irreversible = $doc->value()->{'irreversible'};
+        $head_reached = $doc->value()->{'head_reached'};
         print STDERR "Last confirmed block: $confirmed_block, Irreversible: $irreversible\n";
     }
 }
@@ -347,7 +349,12 @@ sub process_data
             }
 
             $irreversible = $last_irreversible;
-        }                   
+        }
+
+        if( not $head_reached and $block_num >= $last_irreversible )
+        {
+            $head_reached = 1;
+        }
 
         $unconfirmed_block = $block_num;
         if( $unconfirmed_block - $confirmed_block >= $ack_every )
@@ -358,7 +365,8 @@ sub process_data
                     'network' => $network,
                     'block_num' => $block_num,
                     'block_time' => $block_time,
-                    'irreversible' => $last_irreversible
+                    'irreversible' => $last_irreversible,
+                    'head_reached' => $head_reached,
                 });
             $cb->upsert($doc);
             if( not $doc->is_ok)

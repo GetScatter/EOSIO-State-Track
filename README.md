@@ -141,6 +141,33 @@ insertion in the database, and by having an entry in
 table.
 
 
+# Public API endpoints
+
+A list of public API endpoints is served by IPFS. It shares the same
+endpoints JSON as
+[LightAPI](https://github.com/cc32d9/eosio_light_api), listing the
+endpoints under "state-track-endpoints" section. The list is available
+with the following links:
+
+* https://endpoints.light.xeos.me/endpoints.json (served by Cloudflare)
+
+* https://ipfs.io/ipns/QmTuBHRokSuiLBiqE1HySfK1BFiT2pmuDTuJKXNganE52N/endpoints.json
+
+
+Also [`apidirectory`](https://github.com/cc32d9/eos.apidirectory)
+smart contract in EOS is listing the endpoints under "statetrack"
+type.
+
+
+# Project sponsors
+
+* [GetScatter](https://get-scatter.com/): funding the software
+  development;
+
+* [EOS Amsterdam](https://eosamsterdam.net/): hosting of public
+  endpoints.
+
+
 
 
 # Souce code, license and copyright

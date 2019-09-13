@@ -5,9 +5,9 @@ smart contracts and provides a way for searching and retrieving the
 data.
 
 
-The API accepts HTTP GET and POST requests, so it's up to you to choose
-the right one. Many SSE libraies are not allowing to send anything but
-GET requests.
+The API accepts HTTP GET and POST requests, so it's up to you to
+choose the right one. Many SSE libraries are not allowing to send
+anything but GET requests.
 
 The API output is a stream of [Server-Sent
 Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events)

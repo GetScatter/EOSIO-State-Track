@@ -176,9 +176,11 @@ sub process_data
                         'block_num' => $block_num,
                     });
                 $cb->upsert($doc);
-                if (!$doc->is_ok)
+                while( not $doc->is_ok )
                 {
-                    die("Could not store document: " . $doc->errstr);
+                    print STDERR ("Could not store document: " . $doc->errstr);
+                    sleep 10;
+                    $cb->upsert($doc);
                 }
                 print STDERR '.';
             }
@@ -210,9 +212,11 @@ sub process_data
                         'block_num_x' => $block_num * 10 + ($data->{'added'} eq 'true' ? 1:0),
                     });
                 $cb->insert($doc);
-                if( not $doc->is_ok)
+                while( not $doc->is_ok )
                 {
-                    die("Could not store document: " . $doc->errstr);
+                    print STDERR ("Could not store document: " . $doc->errstr);
+                    sleep 10;
+                    $cb->insert($doc);
                 }                
                 $has_upd_tables = $block_num;
                 print STDERR '+';
@@ -250,9 +254,11 @@ sub process_data
                 my $doc = Couchbase::Document->new(
                     'tx:' . $network . ':' . $trace->{'id'}, $data);
                 $cb->insert($doc);
-                if (!$doc->is_ok)
+                while( not $doc->is_ok )
                 {
-                    die("Could not store document: " . $doc->errstr);
+                    print STDERR ("Could not store document: " . $doc->errstr);
+                    sleep 10;
+                    $cb->insert($doc);
                 }
                 $has_upd_tx = $data->{'block_num'};
                 print STDERR '*';
@@ -305,27 +311,33 @@ sub process_data
                         
                         my $doc = Couchbase::Document->new($tbl_id, $obj);
                         $cb->upsert($doc);
-                        if( not $doc->is_ok)
+                        while( not $doc->is_ok )
                         {
-                            die("Could not store document: " . $doc->errstr);
+                            print STDERR ("Could not store document: " . $doc->errstr);
+                            sleep 10;
+                            $cb->upsert($doc);
                         }
                     }
                     else
                     {
                         my $doc = Couchbase::Document->new($tbl_id);
                         $cb->remove($doc);
-                        if( not $doc->is_ok and not $doc->is_not_found )
+                        while( not $doc->is_ok and not $doc->is_not_found )
                         {
-                            die("Could not remove document: " . $doc->errstr);
+                            print STDERR ("Could not remove document: " . $doc->errstr);
+                            sleep 10;
+                            $cb->remove($doc);
                         }
                     }
                     
                     {
                         my $doc = Couchbase::Document->new($row->{'id'});
                         $cb->remove($doc);
-                        if( not $doc->is_ok )
+                        while ( not $doc->is_ok )
                         {
-                            die("Could not remove document: " . $doc->errstr);
+                            print STDERR ("Could not remove document: " . $doc->errstr);
+                            sleep 10;
+                            $cb->remove($doc);
                         }
                     }
                 }
@@ -369,9 +381,11 @@ sub process_data
                     'head_reached' => $head_reached,
                 });
             $cb->upsert($doc);
-            if( not $doc->is_ok)
+            while( not $doc->is_ok )
             {
-                die("Could not store document: " . $doc->errstr);
+                print STDERR ("Could not store document: " . $doc->errstr);
+                sleep 10;
+                $cb->upsert($doc);
             }
 
             $confirmed_block = $unconfirmed_block;

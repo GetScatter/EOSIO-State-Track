@@ -498,7 +498,7 @@ $builder->mount
                'SELECT META().id,contract_type,code,tblname,scope,primary_key,rowval ' .
                'FROM ' . $CFG::bucket . ' WHERE type=\'table_row\' ' .
                ' AND network=\'' . $network . '\' AND contract_type=\'token:simpleassets\' ' .
-               ' AND tblname IN [\'accounts\',\'sassets\'] AND scope=\'' . $account . '\''],
+               ' AND tblname=\'sassets\' AND scope=\'' . $account . '\''],
                 
               ['rowupd',
                'SELECT META().id,added,contract_type,code,tblname,scope,primary_key,rowval ' .
@@ -517,7 +517,7 @@ $builder->mount
                'SELECT META().id,added,contract_type,code,tblname,scope,primary_key,rowval ' .
                'FROM ' . $CFG::bucket . ' WHERE type=\'table_upd\' ' .
                ' AND network=\'' . $network . '\' AND contract_type=\'token:simpleassets\' ' .
-               ' AND tblname IN [\'accounts\',\'sassets\'] AND scope=\'' . $account . '\''],
+               ' AND tblname=\'sassets\' AND scope=\'' . $account . '\''],
 
              );
      });

@@ -163,7 +163,7 @@ $builder->mount
              }
          }
 
-         if( $max > 60 )
+         if( $max > 120 )
          {
              my $res = $req->new_response(503);
              $res->content_type('text/plain');

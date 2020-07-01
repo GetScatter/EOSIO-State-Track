@@ -42,10 +42,16 @@ the contract was added to the database).
   all NFT assets belonging to the account. The `rowval` field in the
   data JSON represents a table row in corresponding smart contract.
   `contract_type` field indicates the type of a smart contract, such
-  as "token:simpleassets" or "token:dgoods", and the client software
-  has to interpret the row contents according to the type of a
-  contract.
+  as "token:simpleassets" or "token:dgoods" or "token:atomicassets",
+  and the client software has to interpret the row contents according
+  to the type of a contract.
 
+
+For AtomicAssets objects, the client needs to retrieve the encoding
+schema in order to be able to display them. The schemas are contained
+in "schemas" table, and collection name is the scope:
+
+`https://HOST/strack/table_rows?network=NETWORK&code=ACCOUNT&table=schemas&scope=COLLNAME`
 
 
 ## Contracts
@@ -153,10 +159,6 @@ with the following links:
 
 * https://ipfs.io/ipns/QmTuBHRokSuiLBiqE1HySfK1BFiT2pmuDTuJKXNganE52N/endpoints.json
 
-
-Also [`apidirectory`](https://github.com/cc32d9/eos.apidirectory)
-smart contract in EOS is listing the endpoints under "statetrack"
-type.
 
 
 # Project sponsors

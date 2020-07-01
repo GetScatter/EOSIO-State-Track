@@ -499,7 +499,13 @@ $builder->mount
                'FROM ' . $CFG::bucket . ' WHERE type=\'table_row\' ' .
                ' AND network=\'' . $network . '\' AND contract_type=\'token:simpleassets\' ' .
                ' AND tblname=\'sassets\' AND scope=\'' . $account . '\''],
-                
+
+              ['row',
+               'SELECT META().id,contract_type,code,tblname,scope,primary_key,rowval ' .
+               'FROM ' . $CFG::bucket . ' WHERE type=\'table_row\' ' .
+               ' AND network=\'' . $network . '\' AND contract_type=\'token:atomicassets\' ' .
+               ' AND tblname=\'assets\' AND scope=\'' . $account . '\''],
+              
               ['rowupd',
                'SELECT META().id,added,contract_type,code,tblname,scope,primary_key,rowval ' .
                'FROM ' . $CFG::bucket . ' use index(tbl_upd_04) ' .
@@ -519,6 +525,11 @@ $builder->mount
                ' AND network=\'' . $network . '\' AND contract_type=\'token:simpleassets\' ' .
                ' AND tblname=\'sassets\' AND scope=\'' . $account . '\''],
 
+              ['rowupd',
+               'SELECT META().id,added,contract_type,code,tblname,scope,primary_key,rowval ' .
+               'FROM ' . $CFG::bucket . ' WHERE type=\'table_upd\' ' .
+               ' AND network=\'' . $network . '\' AND contract_type=\'token:atomicassets\' ' .
+               ' AND tblname=\'assets\' AND scope=\'' . $account . '\''],
              );
      });
 

@@ -77,6 +77,7 @@ sub iterate_and_push
         foreach my $q (@queries)
         {
             my $eventtype = shift(@{$q});
+            # print STDERR join('####', @{$q}), "\n";
             my $rv = $cb->query_iterator(@{$q});
 
             while( (my $row = $rv->next()) )
@@ -533,7 +534,95 @@ $builder->mount
              );
      });
 
+
+$builder->mount
+    ($CFG::apiprefix . 'aa_tokens_metadata' => sub {
+         my $env = shift;
+         my $req = Plack::Request->new($env);
+         my $p = $req->parameters();
+         my $network = $p->{'network'};
+         return(error($req, "'network' is not specified")) unless defined($network);
+         return(error($req, "invalid network")) unless ($network =~ /^\w+$/);
+
+         my $account = $p->{'account'};
+         return(error($req, "'account' is not specified")) unless defined($account);
+         return(error($req, "invalid account")) unless ($account =~ /^[1-5a-z.]{1,13}$/);
+
+         my $rv = $cb->query_iterator
+             ('SELECT DISTINCT code, rowval.collection_name, rowval.schema_name, rowval.template_id ' .
+              'FROM ' . $CFG::bucket . ' use index(tbl_row_03) WHERE type=\'table_row\' ' .
+              ' AND network=\'' . $network . '\' AND contract_type=\'token:atomicassets\' ' .
+              ' AND tblname=\'assets\' AND scope=\'' . $account . '\' ' .
+              ' AND rowval.schema_name != \'\' ' .
+              'UNION ' .
+              'SELECT DISTINCT code, rowval.collection_name, rowval.schema_name, rowval.template_id ' .
+              'FROM ' . $CFG::bucket . ' use index(tbl_upd_03) WHERE type=\'table_upd\' ' .
+              ' AND network=\'' . $network . '\' AND contract_type=\'token:atomicassets\' ' .
+              ' AND tblname=\'assets\' AND scope=\'' . $account . '\' ' .
+              ' AND rowval.schema_name != \'\'');
+
+         my %schemas_seen;
+         my %templates_seen;
+         my @queries;
          
+         while( (my $row = $rv->next()) )
+         {
+             my $code = $row->{'code'};
+             my $collection = $row->{'collection_name'};
+             my $schema = $row->{'schema_name'};
+             my $template = $row->{'template_id'};
+
+             if( not $schemas_seen{$code}{$collection}{$schema} )
+             {
+                 push(@queries,
+                      [
+                       'row',
+                       'SELECT META().id,contract_type,code,tblname,scope,primary_key,rowval ' .
+                       'FROM ' . $CFG::bucket . ' use index(tbl_row_05) ' .
+                       'WHERE type=\'table_row\' ' .
+                       ' AND network=\'' . $network . '\' AND contract_type=\'token:atomicassets\' ' .
+                       ' AND tblname=\'schemas\' AND code=\'' . $code . '\' AND scope=\'' . $collection . '\'' .
+                       ' AND rowval.schema_name=\'' . $schema . '\''],
+                      [
+                       'rowupd',
+                       'SELECT META().id,contract_type,code,tblname,scope,primary_key,rowval ' .
+                       'FROM ' . $CFG::bucket . ' use index(tbl_upd_05) ' .
+                       'WHERE type=\'table_upd\' ' .
+                       ' AND network=\'' . $network . '\' AND contract_type=\'token:atomicassets\' ' .
+                       ' AND tblname=\'schemas\' AND code=\'' . $code . '\' AND scope=\'' . $collection . '\'' .
+                       ' AND rowval.schema_name=\'' . $schema . '\''],
+                     );
+                 $schemas_seen{$code}{$collection}{$schema} = 1;
+             }
+
+             if( not $templates_seen{$code}{$collection}{$template} )
+             {
+                 push(@queries,
+                      [
+                       'row',
+                       'SELECT META().id,contract_type,code,tblname,scope,primary_key,rowval ' .
+                       'FROM ' . $CFG::bucket . ' use index(tbl_row_06) ' .
+                       'WHERE type=\'table_row\' ' .
+                       ' AND network=\'' . $network . '\' AND contract_type=\'token:atomicassets\' ' .
+                       ' AND tblname=\'templates\' AND code=\'' . $code . '\' AND scope=\'' . $collection . '\'' .
+                       ' AND rowval.template_id=' . $template],
+                      [
+                       'rowupd',
+                       'SELECT META().id,contract_type,code,tblname,scope,primary_key,rowval ' .
+                       'FROM ' . $CFG::bucket . ' use index(tbl_upd_06) ' .
+                       'WHERE type=\'table_upd\' ' .
+                       ' AND network=\'' . $network . '\' AND contract_type=\'token:atomicassets\' ' .
+                       ' AND tblname=\'templates\' AND code=\'' . $code . '\' AND scope=\'' . $collection . '\'' .
+                       ' AND rowval.template_id=' . $template],
+                     );
+                 $templates_seen{$code}{$collection}{$template} = 1;
+             }
+         }
+             
+         return iterate_and_push($cb, @queries);
+     });
+
+
 $builder->to_app;
 
 

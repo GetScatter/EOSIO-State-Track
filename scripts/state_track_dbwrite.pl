@@ -133,6 +133,7 @@ sub process_data
 
     if( $msgtype == 1001 ) # CHRONICLE_MSGTYPE_FORK
     {
+        $irreversible = $data->{'last_irreversible'};
         my $block_num = $data->{'block_num'};
         print STDERR "fork at $block_num\n";
 
@@ -189,37 +190,83 @@ sub process_data
             {
                 my $rowid = sha256_hex(
                     join(':', $network, $contract, $table, $kvo->{'scope'}, $kvo->{'primary_key'}));
-                
-                my $id = join(':', 'table_upd', $block_num, $rowid, $data->{'added'});
+
                 my $type = $acc_contract_type{$contract};
                 $type = 'unnclassified' unless defined($type);
                 
-                my $doc = Couchbase::Document->new(
-                    $id,
-                    {
-                        'type' => 'table_upd',
-                        'contract_type' => $type,
-                        'rowid' => $rowid,
-                        'network' => $network,
-                        'code' => $contract,
-                        'tblname' => $table,
-                        'added' => $data->{'added'},
-                        'scope' => $kvo->{'scope'},
-                        'primary_key' => $kvo->{'primary_key'},    
-                        'rowval' => $kvo->{'value'},
-                        'block_timestamp' => $block_time,
-                        'block_num' => $block_num,
-                        'block_num_x' => $block_num * 10 + ($data->{'added'} eq 'true' ? 1:0),
-                    });
-                $cb->insert($doc);
-                while( not $doc->is_ok )
+                if( $block_num > $irreversible )
                 {
-                    print STDERR ("Could not store document: " . $doc->errstr);
-                    sleep 10;
+                    my $id = join(':', 'table_upd', $block_num, $rowid, $data->{'added'});
+                    
+                    my $doc = Couchbase::Document->new(
+                        $id,
+                        {
+                            'type' => 'table_upd',
+                            'contract_type' => $type,
+                            'rowid' => $rowid,
+                            'network' => $network,
+                            'code' => $contract,
+                            'tblname' => $table,
+                            'added' => $data->{'added'},
+                            'scope' => $kvo->{'scope'},
+                            'primary_key' => $kvo->{'primary_key'},    
+                            'rowval' => $kvo->{'value'},
+                            'block_timestamp' => $block_time,
+                            'block_num' => $block_num,
+                            'block_num_x' => $block_num * 10 + ($data->{'added'} eq 'true' ? 1:0),
+                        });
                     $cb->insert($doc);
-                }                
-                $has_upd_tables = $block_num;
-                print STDERR '+';
+                    while( not $doc->is_ok )
+                    {
+                        print STDERR ("Could not store document: " . $doc->errstr);
+                        sleep 10;
+                        $cb->insert($doc);
+                    }                
+                    $has_upd_tables = $block_num;
+                    print STDERR '!';
+                }
+                else
+                {
+                    my $id = join(':', 'table_row', $rowid);
+
+                    if( $data->{'added'} eq 'true' )
+                    {
+                        my $doc = Couchbase::Document->new(
+                            $id,
+                            {
+                                'type' => 'table_row',
+                                'contract_type' => $type,
+                                'network' => $network,
+                                'code' => $contract,
+                                'tblname' => $table,
+                                'scope' => $kvo->{'scope'},
+                                'primary_key' => $kvo->{'primary_key'},    
+                                'rowval' => $kvo->{'value'},
+                                'block_timestamp' => $block_time,
+                                'block_num' => $block_num,
+                            });
+                        $cb->insert($doc);
+                        while( not $doc->is_ok )
+                        {
+                            print STDERR ("Could not store document: " . $doc->errstr);
+                            sleep 10;
+                            $cb->insert($doc);
+                        }                
+                        print STDERR '@';
+                    }
+                    else
+                    {
+                        my $doc = Couchbase::Document->new($id);
+                        $cb->remove($doc);
+                        while( not $doc->is_ok and not $doc->is_not_found )
+                        {
+                            print STDERR ("Could not remove document: " . $doc->errstr);
+                            sleep 10;
+                            $cb->remove($doc);
+                        }
+                        print STDERR '~';
+                    }
+                }
             }
         }
     }
@@ -317,6 +364,7 @@ sub process_data
                             sleep 10;
                             $cb->upsert($doc);
                         }
+                        print STDERR '+';
                     }
                     else
                     {
@@ -328,6 +376,7 @@ sub process_data
                             sleep 10;
                             $cb->remove($doc);
                         }
+                        print STDERR '-';
                     }
                     
                     {

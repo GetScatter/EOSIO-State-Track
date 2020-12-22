@@ -133,9 +133,13 @@ sub process_data
 
     if( $msgtype == 1001 ) # CHRONICLE_MSGTYPE_FORK
     {
-        $irreversible = $data->{'last_irreversible'};
+        if( $data->{'last_irreversible'} > 0 )
+        {
+            $irreversible = $data->{'last_irreversible'};
+        }
+        
         my $block_num = $data->{'block_num'};
-        print STDERR "fork at $block_num\n";
+        print STDERR "fork at $block_num; irreversible: $irreversible\n";
 
         $cb->query_slurp('DELETE FROM ' . $bucket . ' WHERE type=\'table_upd\' ' .
                          'AND network=\'' . $network . '\' AND TONUM(block_num)>=' . $block_num,
@@ -194,7 +198,7 @@ sub process_data
                 my $type = $acc_contract_type{$contract};
                 $type = 'unnclassified' unless defined($type);
                 
-                if( $block_num > $irreversible )
+                if( $block_num > $irreversible and  $irreversible > 0 )
                 {
                     my $id = join(':', 'table_upd', $block_num, $rowid, $data->{'added'});
                     
@@ -245,12 +249,12 @@ sub process_data
                                 'block_timestamp' => $block_time,
                                 'block_num' => $block_num,
                             });
-                        $cb->insert($doc);
+                        $cb->upsert($doc);
                         while( not $doc->is_ok )
                         {
                             print STDERR ("Could not store document: " . $doc->errstr);
                             sleep 10;
-                            $cb->insert($doc);
+                            $cb->upsert($doc);
                         }                
                         print STDERR '@';
                     }
